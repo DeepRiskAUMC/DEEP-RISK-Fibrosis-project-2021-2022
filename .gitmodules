@@ -1,3 +1,0 @@
-[submodule "deeprisk_weakly_supervised"]
-	path = deeprisk_weakly_supervised
-	url = https://github.com/roelKln/deeprisk_weakly_supervised
