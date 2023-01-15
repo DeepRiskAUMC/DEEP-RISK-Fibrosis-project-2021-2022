@@ -11,6 +11,7 @@ Also includes options for training **fully-supervised** segmentation, both for *
 * Install [Anaconda](https://docs.anaconda.com/anaconda/install/index.html) or [Miniconda](https://docs.conda.io/en/latest/miniconda.html).
 * `conda env create --file deeprisk_weak.yml` from cmd/terminal at cloned repository to create the conda environment.
 * `conda activate deeprisk_weak` in terminal to activate the environment.
+*  On the L drive, all trained models and data can be found in `L:\basic\diva1\Onderzoekers\DEEP-RISK\DEEP-RISK\deeprisk_weakly_supervised_data_and_models.zip`. Unpack the parts that you need in your cloned repository. Fibrosis pseudolabels are in the classification model log folders. Similarly, fibrosis segmentation predictions are in the fibrosis segmentation model log folder, and myocardium segmentation predictions are in the myocardium segmentation log folders.
 
 
 ## 1. Training myocardium segmentation & inference
