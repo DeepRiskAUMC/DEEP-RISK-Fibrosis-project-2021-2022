@@ -1,11 +1,12 @@
-import torch
 import math
+
 import numpy as np
+import torch
 import torch.nn.functional as f
-import skimage.metrics as skmetrics
 from sklearn.metrics import confusion_matrix, roc_auc_score
 
 from .average_hausdorff import avg_hausdorff_distance, reg_hausdorff_distance
+
 
 class Diceloss(torch.nn.Module):
     def init(self):

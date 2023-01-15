@@ -1,36 +1,41 @@
-
-import pytorch_lightning as pl
-import torch
-from pathlib import Path
-from torchvision import transforms
-from torch.utils.data import DataLoader
+""" 
+Used to generate fibrosis 'pseudo-labels' based on:
+    -   A trained stack-level fibrosis classification model
+    -   Per-stack fibrosis labels
+    -   (Predicted) Myocardium segmentations
+    
+These fibrosis pseudo-labels can then be used to train a fibrosis segmentation model.      
+"""
 from argparse import ArgumentParser
-import numpy as np
-from tqdm import tqdm
-import yaml
-import torchvision
-import matplotlib.pyplot as plt
+from pathlib import Path
+
 import matplotlib.cm as cm
-import torch.nn.functional as F
-import skimage
-from skimage.filters import threshold_multiotsu
-import torchvision.transforms.functional as TF
+import matplotlib.pyplot as plt
+import numpy as np
+import pytorch_lightning as pl
 import SimpleITK as sitk
-
-from train_classifier_3d import load_dataset, init_model
-from preprocessing import denormalize_transform, uncrop
+import torch
+import torchvision
+import yaml
 from densecrf import densecrf
+from make_and_evaluate_cams_2D import (calculate_metrics, cam_to_prob, merge_cams,
+                                    otsu_mask_cam)
+from preprocessing import uncrop
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+from train_classifier_3d import init_model, load_dataset
 
-from make_and_evaluate_cams import dice_score, merge_cams, otsu_mask_cam, cam_to_prob
-
-MYO_TEST_IDS = ["0075", "0172", "0338", "0380", "0411", "0435", "0507", "0567", "0634", "0642", "0673", "1017", "1042", "1166", "1199"]
-ONLY_MYO_TEST = False
+# set to true to only evaluate correctly predicted image stacks
 ONLY_CORRECT  = False
 
-DENORM = denormalize_transform()
 
-
-def visualize_cam(img, myo_seg, fibrosis_seg, cam, prediction, dice, probs=None, pseudo=None, pseudo_dice=None):
+def visualize_cam(img, myo_seg, fibrosis_seg, cam, prediction, dice,
+                 probs=None, pseudo=None, pseudo_dice=None):
+    """For a (batched) stacks of image slices:
+    Plot the image, myocardium segmentation, (Ground truth) fibrosis segmentation,
+     Clas Activation Map, (Optional) Probabilities as input for dCRF,
+    (Optional) Refined pseudo-gt fibrosis, Dice scores, classification model prediction
+    """
     # reformat depth to batch dimension from 3D to batched 2D
     B, C, D, H, W = img.shape
     img = img.view(B*D, C, H, W)
@@ -42,9 +47,8 @@ def visualize_cam(img, myo_seg, fibrosis_seg, cam, prediction, dice, probs=None,
     if pseudo != None:
         pseudo = pseudo.view(B*D, C, H, W)
 
-
-
     grid_img = torchvision.utils.make_grid(img, nrow=4, normalize=True, padding=2).detach().cpu()
+    
     grid_myo = torchvision.utils.make_grid(myo_seg, nrow=4, padding=2).cpu().detach()
     grid_myo = np.ma.masked_where(grid_myo <= 0, grid_myo)
 
@@ -90,7 +94,6 @@ def visualize_cam(img, myo_seg, fibrosis_seg, cam, prediction, dice, probs=None,
     for i in range(plots):
         axs[i].set_axis_off()
 
-
     plt.show()
     return
 
@@ -105,7 +108,9 @@ def evaluate_batch(batch, model, confidence_weighting=False,
                     myo_fullsize_mask=False,
                     no_myo_mask=False,
                     cheat_dice=False):
-    """ Only works for batch size 1!"""
+    """ Generate a fibrosis pseudo-label and calculate metrics.
+    Only works for batch size 1!
+    """
     img = batch["img"]
     weak_label = batch["label"]
     myo_seg = batch['myo_seg']
@@ -118,7 +123,7 @@ def evaluate_batch(batch, model, confidence_weighting=False,
     # convert slice-level weak label to stack-level weak label
     weak_label = weak_label.nan_to_num().amax(dim=-1, keepdim=False)
 
-    # compute dice if label available
+    # only compute dice and pseudolabel if patient has fibrosis
     if fibrosis_seg_label.amax() > 0.01 or (compute_no_gt == True and weak_label == 1):
 
         # get prediction value
@@ -128,6 +133,7 @@ def evaluate_batch(batch, model, confidence_weighting=False,
         if merge_cam == True:
             max_translation = 8
         else:
+            # max translation 1, so merge cams will simply be one input
             max_translation = 1
 
         if no_myo_mask == True:
@@ -150,6 +156,7 @@ def evaluate_batch(batch, model, confidence_weighting=False,
             return {}, {}, torch.zeros_like(img)
 
         if confidence_weighting == True:
+            # weight cam with model prediction
             cam = cam * pred
 
         pseudo = cam.clone()
@@ -158,17 +165,17 @@ def evaluate_batch(batch, model, confidence_weighting=False,
 
         if iters > 0:
             # denseCRF
-            denorm_img = DENORM(img)
             img_int8 = (255*img).type(torch.uint8)
             probs = torch.zeros_like(pseudo)
+            # make pseudo labels for each slice
             for s in range(pseudo.shape[2]):
                 probs[:,:,s] = cam_to_prob(pseudo[:,:,s], cam_threshold=threshold, binarize=cam_prob_binarize, ambiguous_threshold=ambiguous_threshold)
                 pseudo[:,:,s] = densecrf(img_int8[0,:,s], probs[0,:,s], crf_params)
 
-        pseudo_metrics = dice_score(pseudo, fibrosis_seg_label, threshold)
+        pseudo_metrics = calculate_metrics(pseudo, fibrosis_seg_label, threshold)
         pseudo_dice = pseudo_metrics['dice']
 
-        metrics = dice_score(cam, fibrosis_seg_label, threshold)
+        metrics = calculate_metrics(cam, fibrosis_seg_label, threshold)
         dice = metrics['dice']
 
         if visualize == True:
@@ -187,7 +194,8 @@ def evaluate_batch(batch, model, confidence_weighting=False,
 
 
 
-def evaluate_setting(dataloader, model, hparams, threshold, visualize=False, out_dir=None):
+def evaluate_setting(dataloader, model, hparams, threshold, out_dir=None):
+    """Calculate metrics and sve results for a certain CAM threshold."""
     metric_sums = {}
     metric_sums['cam'] = {"dice" : 0, "precision" : 0, "recall" : 0}
     metric_sums['pseudo'] = {"dice" : 0, "precision" : 0, "recall" : 0}
@@ -240,6 +248,7 @@ def evaluate_setting(dataloader, model, hparams, threshold, visualize=False, out
 
 
 def evaluate_cams(hparams):
+    """ Generate and evaluate CAMs for different data splits and CAM thresholds."""
     assert hparams.batch_size == 1
     pl.seed_everything(hparams.trainseed, workers=True)
     # path names
@@ -301,74 +310,148 @@ def evaluate_cams(hparams):
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument("--visualize", action='store_true')
-    parser.add_argument("--skip_train", action='store_true')
-    parser.add_argument("--save", action='store_true')
-    parser.add_argument("--cheat_dice_posttraining", action='store_true')
+    parser.add_argument("--visualize", action='store_true',
+                        help="Plot fibrosis Pseudo-labels.")
+    parser.add_argument("--skip_train", action='store_true',
+                        help="Set flag to only use validation and test set.")
+    parser.add_argument("--save", action='store_true',
+                        help="Set flag to save the fibrosis pseudolabels.")
+    parser.add_argument("--cheat_dice_posttraining", action='store_true',
+                        help=""" Set flag to copy fibrosis ground truth instead
+                        of using CAMs. Gives an indication of the maximal possible
+                        metrics with the current settings.""")
     # choose dataset
-    parser.add_argument("--dataset", type=str, default="deeprisk", choices=['deeprisk', 'cifar10'])
-    parser.add_argument("--img_type", type=str, default='PSIR', choices=['PSIR', 'MAG'])
+    parser.add_argument("--dataset", type=str, default="deeprisk",
+                        choices=['deeprisk', 'cifar10'],
+                        help="Dataset to use.")
+    parser.add_argument("--img_type", type=str, default='PSIR', choices=['PSIR', 'MAG'],
+                         help="For deeprisk, which type of LGE images to use.")
     # hardware
-    parser.add_argument("--gpus", default=0)
-    parser.add_argument("--num_workers", type=int, default=0)
+    parser.add_argument("--gpus", default=0,
+                         help="Number of gpus to use. Set to 0 for cpu.")
+    parser.add_argument("--num_workers", type=int, default=0,
+                         help="Number of workers for dataloaders.")
     # reproducability
-    parser.add_argument("--trainseed", type=int, default=42)
-    parser.add_argument("--splitseed", type=int, default=84)
-    parser.add_argument("--train_frac", type=float, default=0.6) # fraction of pixel-labeled data used for trainset after removing testset (as of 07/03 corresponds to train/val/test 241/21/20)
+    parser.add_argument("--trainseed", type=int, default=42,
+                         help="Seed used for training.")
+    parser.add_argument("--splitseed", type=int, default=84,
+                         help="See datasets.py for more information.")
+    parser.add_argument("--train_frac", type=float, default=0.6,
+                         help="See datasets.py for more information.")                     
     # paths (base data dir and relative paths to other dirs)
-    parser.add_argument("--data_path", type=str, default=r"../data")
-    parser.add_argument("--img_path", type=str, default=r"all_niftis_n=657")
-    parser.add_argument("--weak_labels_path", type=str, default=r"weak_labels_n=657.xlsx")
-    parser.add_argument("--load_checkpoint", type=str, required=True)
-    parser.add_argument("--myoseg_path", type=str, default=r"myocard_predictions/deeprisk_myocardium_predictions")
-    parser.add_argument("--seg_labels_dir", type=str, default=r"fibrosis_labels_n=117")
-    parser.add_argument("--out_dir", type=str, default=r"pseudolabels")
+    parser.add_argument("--data_path", type=str, default=r"../data",
+                         help="Path to directory containing all data.")
+    parser.add_argument("--img_path", type=str, default=r"all_niftis_n=657",
+                         help="Relative path from data_path to image directory.")
+    parser.add_argument("--weak_labels_path", type=str, default=r"weak_labels_n=657.xlsx",
+                         help="Relative path from data_path to excel sheet with weak labels.")
+    parser.add_argument("--load_checkpoint", type=str, required=True,
+                         help="Full path + filename of model checkpoint.")
+    parser.add_argument("--myoseg_path", type=str, default=r"myocard_predictions/deeprisk_myocardium_predictions",
+                         help="Relative path from data_path to directory with predicted myocardium segmentations.")
+    parser.add_argument("--seg_labels_dir", type=str, default=r"fibrosis_labels_n=117",
+                         help="Relative path from data_path to directory with ground truth fibrosis segmentations.")
+    parser.add_argument("--out_dir", type=str, default=r"pseudolabels",
+                        help="Output directory for fibrosis pseudolabels.")
     # model
-    parser.add_argument("--model", type=str, default='drnd', choices=['drnd', 'drnd22', 'drnd24'])
+    parser.add_argument("--model", type=str, default='drnd', 
+                        choices=['convnext', 'resnet18', 'resnet50', 'resnet101', 'simple', 'drnc', 'drnc26', 'drnd', 'drnd22', 'drnd24', 'resnet38', 'vgg16'],
+                        help="Model architecture to use.")
     # learning hyperparameters
-    parser.add_argument("--batch_size", type=int, default=1) # don't change
+    parser.add_argument("--batch_size", type=int, default=1,
+                        help="Don't change, code can currently only handle batch size 1.")
     # data augmentation
-    parser.add_argument("--image_norm", type=str, default="per_image", choices=["per_image", "global_statistic", "global_agnostic"])
-    parser.add_argument("--no_roi_crop", action='store_true')
-    parser.add_argument("--include_no_myo", default=True)
-    parser.add_argument("--roi_crop", type=str, default="fixed", choices=['fitted', 'fixed'])
-    parser.add_argument("--center_crop", type=int, default=224) # only used if no roi crop
-    parser.add_argument("--input_size", type=int, default=224)
-    parser.add_argument("--rotate", type=int, default=0)
-    parser.add_argument("--translate", nargs=2, type=float, default=(0, 0))
-    parser.add_argument("--scale", nargs=2, type=float, default=(1, 1))
-    parser.add_argument("--shear", nargs=4, type=int, default=(0, 0, 0, 0))
-    parser.add_argument("--randomaffine_prob", type=float, default=0.0)
-    parser.add_argument("--brightness", type=float, default=0)
-    parser.add_argument("--contrast", type=float, default=0)
-    parser.add_argument("--hflip", type=float, default=0.0)
-    parser.add_argument("--vflip", type=float, default=0.0)
-    parser.add_argument("--randomcrop", type=int, default=False) # random crop size, taken from the resized image
-    parser.add_argument("--randomcrop_prob", type=float, default=0.0)
-    parser.add_argument("--randomerasing_scale", nargs=2, type=float, default=(0.02, 0.33))
-    parser.add_argument("--randomerasing_ratio", nargs=2, type=float, default=(0.3, 3.3))
-    parser.add_argument("--randomerasing_probs", nargs="+", type=float, default=[]) # set multiple probs for multiple randomerasing transforms
-    parser.add_argument("--feature_dropout", type=float, default=0.0)
-    parser.add_argument("--cam_dropout", type=float, default=0.0)
+    parser.add_argument("--image_norm", type=str, default="per_image", choices=["per_image", "global_statistic", "global_agnostic", "no_norm"],
+                         help="Type of image normalization. See preprocessing.py for details.")
+    parser.add_argument("--no_roi_crop", action='store_true',
+                         help="Include flag to not do a region of interest crop around the heart. Will use centercrop instead.")
+    parser.add_argument("--include_no_myo", default=True,
+                         help="Whether to include image slices that don't contain myocardium in the dataset.")
+    parser.add_argument("--roi_crop", type=str, default="fixed", choices=['fitted', 'fixed'],
+                         help="Type of region of interest crop. See dataset.py for details.")
+    parser.add_argument("--center_crop", type=int, default=224,
+                         help="Size of center crop if you opt for no ROI crop.")
+    parser.add_argument("--input_size", type=int, default=224,
+                         help="Image size of model inputs.")
+    parser.add_argument("--rotate", type=int, default=0,
+                         help="Possible degrees of rotation for data augmentation.")
+    parser.add_argument("--translate", nargs=2, type=float, default=(0, 0),
+                         help="Possible translation range in x and y direction for data augmentation, as a factor of image size.")
+    parser.add_argument("--scale", nargs=2, type=float, default=(1, 1),
+                         help="Possible scaling factor range in x and y direction for data augmentation.")
+    parser.add_argument("--shear", nargs=4, type=int, default=(0, 0, 0, 0),
+                         help="Shearing parameters for data augmentation.")
+    parser.add_argument("--randomaffine_prob", type=float, default=0.0,
+                         help="Probability of doing a randomaffine data augmentation (rotation+scale+translation+shear).")
+    parser.add_argument("--brightness", type=float, default=0.0,
+                         help="Brightness parameter for random colorjitter data augmentation.")
+    parser.add_argument("--contrast", type=float, default=0.0,
+                         help="Contrast parameter for random colorjitter data augmentation")
+    parser.add_argument("--hflip", type=float, default=0.0,
+                         help="Probability of random horizontal flip data augmentation")
+    parser.add_argument("--vflip", type=float, default=0.0,
+                         help="Probability of random vertical flip data augmentation.")
+    parser.add_argument("--randomcrop", type=int, default=False,
+                         help="Size of randomcrop data augmentation. Set to False for no random crop.")
+    parser.add_argument("--randomcrop_prob", type=float, default=0.0,
+                         help="Probability of taking a random crop data augmentation.")
+    parser.add_argument("--randomerasing_scale", nargs=2, type=float, default=(0.02, 0.33),
+                         help="Range for erasing area of random erasing data augmentation, as factor of image size.")
+    parser.add_argument("--randomerasing_ratio", nargs=2, type=float, default=(0.3, 3.3),
+                         help="Range for aspect ratio of random erasing data augmentation.")
+    parser.add_argument("--randomerasing_probs", nargs="+", type=float, default=[],
+                         help="Probability of random erasing data augmentation. Set multiple probabilities for multiple erasing transforms.")
+    parser.add_argument("--feature_dropout", type=float, default=0.0,
+                         help="Probability of a feature being dropped out at the last layer.")
+    parser.add_argument("--cam_dropout", type=float, default=0.0,
+                         help="Probability of a spatial location being dropped at before the final pooling.")
     # cam seeds hyperparameters
-    parser.add_argument("--select_values", type=str, default="pos_only", choices=["all", "pos_only", "sigmoid"])
-    parser.add_argument("--upsampling", type=str, default="trilinear", choices=["no", "trilinear"])
-    parser.add_argument("--no_myo_mask", action='store_true')
-    parser.add_argument("--myo_fullsize_mask", default=True)
-    parser.add_argument("--myo_mask_threshold", default=0.4)
-    parser.add_argument("--change_myo_dilation", type=int, default=None)
-    parser.add_argument("--thresholds", nargs="*", type=float, default=[1.0])
-    parser.add_argument("--confidence_weighting", action="store_true")
-    parser.add_argument("--otsu_mask", action="store_true")
-    parser.add_argument("--otsu_cam_threshold", type=float, default=0.0)
-    parser.add_argument("--ambiguous_threshold", type=float, default=0.0)
-    parser.add_argument("--merge_cam", action="store_true")
-    parser.add_argument("--iters", type=int, default=5) # denseCRF iterations, zero for no denseCRF
-    parser.add_argument("--w1", type=float, default=0) # appearance weight (distance +intensity)
-    parser.add_argument("--alpha", type=float, default=3) # std distance
-    parser.add_argument("--beta", type=float, default=3) # std intensity
-    parser.add_argument("--w2", type=float, default=1) # smoothness weight (only distance)
-    parser.add_argument("--gamma", type=float, default=3) # std distance
+    parser.add_argument("--select_values", type=str, default="pos_only",
+                        choices=["all", "pos_only", "sigmoid"],
+                        help="""Whether to apply ReLU on Class Activation Maps
+                        (pos_only), apply a Sigmoid (sigmoid) or leave values as is (all).
+                        The CAM will be scaled to range(0,1) after this.""")
+    parser.add_argument("--upsampling", type=str, default="trilinear",
+                         choices=["no", "trilinear"],
+                         help="Type of upsampling to use to bring CAMs to image resolution.")
+    parser.add_argument("--myo_fullsize_mask", default=True,
+                        help="""Set to True to do the masking out of CAMs
+                        AFTER CAMs are upsampled.""")
+    parser.add_argument("--myo_mask_threshold", default=0.4,
+                        help="Threshold on mycardium prediction to generate mask for CAMs.")
+    parser.add_argument("--no_myo_mask", action='store_true',
+                        help="Set flag to NOT use myocardium mask on CAMs.")
+    parser.add_argument("--change_myo_dilation", type=int, default=None,
+                        help="""Set value to use a different myocardium mask
+                        dilation than what the model was trained with. 
+                        Default=None to use the same dilation the model was trained with.""")
+    parser.add_argument("--thresholds", nargs="*", type=float, default=[1.0],
+                        help="List of CAMs thresholds to calculate metrics for.")
+    parser.add_argument("--confidence_weighting", action="store_true",
+                        help="""Set flag to, after having scaled CAMs in range(0,1),
+                        multiply CAMs by the prediction of the classification model.""")
+    parser.add_argument("--otsu_mask", action="store_true",
+                        help="Set flag to use otsu thresholding (Recommended true)")
+    parser.add_argument("--otsu_cam_threshold", type=float, default=0.0,
+                        help="Perform otsu thresholding only where CAM > threshold.")
+    parser.add_argument("--ambiguous_threshold", type=float, default=0.0,
+                        help="CAM threshold for non-zero probabilities")
+    parser.add_argument("--merge_cam", action="store_true",
+                        help="""Set True to merge CAMs of several slightly
+                        translated input images. Can improve CAM smoothness if CAM
+                        resolution is low, but is also slower to run. """)
+    parser.add_argument("--iters", type=int, default=5,
+                        help="Number of iterations for denseCRF, 0 to skip.")
+    parser.add_argument("--w1", type=float, default=0,
+                        help="dCRF appearance weight (distance + intensity)")
+    parser.add_argument("--alpha", type=float, default=3,
+                        help="w1 standard deviation for distance.")
+    parser.add_argument("--beta", type=float, default=3,
+                        help="w1 standard deviation for intensity.")
+    parser.add_argument("--w2", type=float, default=1,
+                        help="dCRF smoothness weight (distance)")
+    parser.add_argument("--gamma", type=float, default=3,
+                        help="w2 standard deviation.")
 
 
     args = parser.parse_args()

@@ -1,11 +1,8 @@
-
-import numpy as np
-
-import torch
 import torch.nn.functional as F
 from torch import nn
 
 from .base_net import BaseNet
+
 
 class VGG16(BaseNet):
     def __init__(self, fc6_dilation = 1, in_chans = 1, first_dim=64, **kwargs):

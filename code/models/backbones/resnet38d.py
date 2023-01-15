@@ -1,10 +1,9 @@
 import torch
-from torch import nn
-import numpy as np
-
 import torch.nn.functional as F
+from torch import nn
 
 from .base_net import BaseNet
+
 
 class ResBlock(nn.Module):
     def __init__(self, in_channels, mid_channels, out_channels, stride=1, first_dilation=None, dilation=1):

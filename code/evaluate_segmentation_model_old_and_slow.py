@@ -1,20 +1,20 @@
-import torch
-from pathlib import Path
-from torch.utils.data import DataLoader
-from argparse import ArgumentParser
-import yaml
-import matplotlib.pyplot as plt
-import matplotlib.cm as cm
-import pytorch_lightning as pl
-from collections import defaultdict
-import pickle
-import skimage.metrics
+""" This was an earlier method of evaluation segmentation models,
+which (as opposed to evaluate_segmentation_model.py) did not
+require having done inference beforehand. However, because of
+this it is also pretty slow in comparison."""
 import json
-import numpy as np
-from tqdm import tqdm
-import torch.nn.functional as F
+import pickle
+from argparse import ArgumentParser
+from pathlib import Path
 
-from train_segmentation import load_dataset, init_model
+import pytorch_lightning as pl
+import skimage.metrics
+import torch
+import torch.nn.functional as F
+import yaml
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+from train_fib_segmentation import init_model, load_dataset
 
 
 def load_model(hparams):

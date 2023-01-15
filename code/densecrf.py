@@ -1,6 +1,7 @@
-import numpy as np
 import denseCRF
+import numpy as np
 import torch
+
 
 def densecrf(img, prob, param):
     """

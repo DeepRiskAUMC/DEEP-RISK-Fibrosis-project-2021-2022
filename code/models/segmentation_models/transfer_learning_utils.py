@@ -25,17 +25,14 @@ Note:
 import argparse
 from collections import OrderedDict
 from pathlib import Path
-from tempfile import TemporaryDirectory
-from typing import Optional, Generator, Union
+from typing import Generator, Optional, Union
 
 import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
 from torch import optim
 from torch.optim.optimizer import Optimizer
-from torch.utils.data import DataLoader
 from torchvision import models
-from torchvision import transforms
 
 BN_TYPES = (torch.nn.BatchNorm1d, torch.nn.BatchNorm2d, torch.nn.BatchNorm3d)
 

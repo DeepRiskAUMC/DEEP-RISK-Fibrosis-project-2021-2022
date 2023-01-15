@@ -1,10 +1,6 @@
 import torch.nn as nn
-import torch
+from models.pl_classification_model_2d import ModelBase
 from torchvision import models
-import torch.nn.functional as F
-import pytorch_lightning as pl
-
-from models.pl_base_model import ModelBase
 
 
 class LightningResNet(ModelBase):

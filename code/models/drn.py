@@ -1,9 +1,8 @@
-import torch.nn as nn
 import math
+
+import torch.nn as nn
 import torch.utils.model_zoo as model_zoo
-import torch.nn.functional as F
-import torch
-from models.pl_base_model import ModelBase
+from models.pl_classification_model_2d import ModelBase
 
 BatchNorm = nn.BatchNorm2d
 
@@ -96,9 +95,6 @@ class LightningDRN(ModelBase):
             self.layer8 = None if depths[7] == 0 else \
                 self._make_conv_layers(dims[7], depths[7], dilation=1)
 
-        #if num_classes > 0:
-        #    self.classifier = nn.Conv2d(dims[-1], self.num_classes, 1, bias=True)
-
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
@@ -162,8 +158,7 @@ class LightningDRN(ModelBase):
             x = self.layer7(x)
         if self.layer8 is not None:
             x = self.layer8(x)
-
-        #x = self.classifier(x)
+            
         return x
 
 

@@ -1,18 +1,17 @@
-import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
 # backbone nets
 from models.backbones.drn import DRN
 from models.backbones.resnet38d import ResNet38
+from models.backbones.resnets import ResNet50, ResNet101
 from models.backbones.vgg16d import VGG16
-from models.backbones.resnets import ResNet101, ResNet50
 # modules
 from models.single_stage_mods.aspp import ASPP
+from models.single_stage_mods.gci import GCI
 from models.single_stage_mods.pamr import PAMR
 from models.single_stage_mods.sg import StochasticGate
-from models.single_stage_mods.gci import GCI
+
 
 #
 # Helper classes

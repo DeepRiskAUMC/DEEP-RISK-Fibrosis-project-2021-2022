@@ -1,11 +1,9 @@
-import torch.nn as nn
 import math
-import torch.utils.model_zoo as model_zoo
-import torch.nn.functional as F
-import torch.nn as nn
-import torch
-from .base_net import BaseNet
 
+import torch.nn as nn
+import torch.utils.model_zoo as model_zoo
+
+from .base_net import BaseNet
 
 BatchNorm = nn.BatchNorm2d
 

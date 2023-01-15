@@ -1,20 +1,19 @@
-import torch.nn as nn
-import torch
-import torch.nn.functional as F
-import pytorch_lightning as pl
-import torchmetrics
-import matplotlib.pyplot as plt
-import io
-import numpy as np
 import itertools
-import torchvision
-import matplotlib.cm as cm
 import math
-from torchvision.transforms import transforms
-import cv2
 from argparse import Namespace
 
+import cv2
+import matplotlib.cm as cm
+import matplotlib.pyplot as plt
+import numpy as np
+import pytorch_lightning as pl
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torchmetrics
+import torchvision
 from models import get_model
+from torchvision.transforms import transforms
 
 DEBUG = False
 
@@ -92,15 +91,6 @@ class SingleStageBase(pl.LightningModule):
         self.aspp = aspp
 
         # model
-        """ enc_cfg = {"MODEL" : "ae",
-                   "BACKBONE" : model,
-                   "PRE_WEIGHTS_PATH" : None,
-                   "MASK_LOSS_BCE" : self.MASK_LOSS_BCE,
-                   "FOCAL_P" : 3,
-                   "FOCAL_LAMBDA" : 0.01,
-                   "PAMR_KERNEL" : [1, 2, 4, 8, 12, 24],
-                   "PAMR_ITER" : 10,
-                   "SG_PSI" : 0.3}"""
         enc_cfg = Namespace()
         enc_cfg.MODEL = "ae"
         enc_cfg.BACKBONE = backbone
@@ -121,17 +111,6 @@ class SingleStageBase(pl.LightningModule):
         def _make_metric_dict(metric, splits=["Train", "Val", "Test"], **kwargs):
             return nn.ModuleDict({split : metric(**kwargs) for split in splits })
 
-        #self.accuracy = nn.ModuleDict({
-        #    "Train" : torchmetrics.Accuracy(threshold=0.5),
-        #    "Val" : torchmetrics.Accuracy(threshold=0.5),
-        #    "Test" : torchmetrics.Accuracy(threshold=0.5)
-        #})
-
-        #self.confusion = nn.ModuleDict({
-        #    "Train" : torchmetrics.ConfusionMatrix(threshold=0.5),
-        #    "Val" : torchmetrics.Accuracy(threshold=0.5),
-        #    "Test" : torchmetrics.Accuracy(threshold=0.5)
-        #})
         self.accuracy = _make_metric_dict(torchmetrics.Accuracy, threshold=0.5)
         self.confusion = _make_metric_dict(torchmetrics.ConfusionMatrix, num_classes=self.num_classes, threshold=0.5)
         self.auroc = _make_metric_dict(torchmetrics.AUROC)
@@ -144,13 +123,6 @@ class SingleStageBase(pl.LightningModule):
         self.dice_pseudo_gt = _make_metric_dict(MyDice, threshold=0.5)
 
         self.example_batch = {"Train" : None, "Val" : None , "Test": None}
-
-
-
-    #def forward(self, *args, **kwargs):
-    #    raise NotImplementedError
-
-
 
 
     def configure_optimizers(self):
@@ -263,10 +235,8 @@ class SingleStageBase(pl.LightningModule):
         # classification
         gt_labels = gt_labels.unsqueeze(-1)
         cls_out, cls_fg, masks, mask_logits, pseudo_gt, loss_mask = self.enc(image, image_raw, gt_labels)
-        #print(f"{cls_out=}")
         # classification loss
         loss_cls = self.multilabel_soft_margin_loss(cls_out, gt_labels).mean()
-        #print(f"{loss_cls=}")
 
         # keep track of losses for logging
         batch_dict = {"loss_cls": loss_cls.item(),
@@ -292,8 +262,6 @@ class SingleStageBase(pl.LightningModule):
 
         cls_out = cls_out.detach()
         cls_pred = self.output2pred(cls_out)
-        #print(f"{cls_pred=}")
-        #print(f"{gt_labels=}")
 
         # logging
         if logging == True:

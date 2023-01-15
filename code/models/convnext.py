@@ -10,12 +10,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from timm.models.layers import trunc_normal_, DropPath
-from timm.models.registry import register_model
-import pytorch_lightning as pl
-
-from models.pl_base_model import ModelBase
-
+from models.pl_classification_model_2d import ModelBase
+from timm.models.layers import DropPath, trunc_normal_
 
 
 class LightningConvNeXt(ModelBase):
@@ -31,7 +27,7 @@ class LightningConvNeXt(ModelBase):
         head_init_scale (float): Init scaling value for classifier weights and biases. Default: 1.
         stem_type (str): Type of initial downsampling to use. "patch" for regular ConvNext stem, "resnet_like" for conv stride 2 followed by maxpool stride 2.
         norm_type (str): Type of normalization. "layer" for layer normalization, "batch" for batch normalization.
-        no_cam (Boolean): Whether to use cam or not. Default False (i.e. do use CAM)
+        no_cam (Boolean): Whether to use class activation maps or not. Default False (i.e. do use CAM)
     """
     def __init__(self, in_chans=3, num_classes=1,
                  depths=[3, 3, 9, 3], dims=[96, 192, 384, 768], drop_path_rate=0.,
@@ -122,7 +118,6 @@ class LightningConvNeXt(ModelBase):
                 self.norm = nn.BatchNorm2d(dims[-1])
             elif norm_type == "layer":
                 self.norm = LayerNorm(dims[-1], eps=1e-6, data_format="channels_first")
-            #self.classifier = nn.Conv2d(dims[-1], num_classes, 1, bias=True)
             self.apply(self._init_weights)
 
     def _init_weights(self, m):
@@ -135,8 +130,6 @@ class LightningConvNeXt(ModelBase):
         for i in range(4):
             x = self.downsample_layers[i](x)
             x = self.stages[i](x)
-        #x = self.norm(x)
-        #x = self.classifier(x)
         return x
 
 
@@ -171,17 +164,14 @@ class Block(nn.Module):
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
 
     def forward(self, x):
-        #print(f"block {x.shape=}")
         input = x
         x = self.dwconv(x)
-        #print(f"block {x.shape=}")
         if self.norm_type == "batch":
             x = self.norm(x)
             x = x.permute(0, 2, 3, 1)
         elif self.norm_type == "layer":
             x = x.permute(0, 2, 3, 1) # (N, C, H, W) -> (N, H, W, C)
             x = self.norm(x)
-        #print(f"block {x.shape=}")
         x = self.pwconv1(x)
         x = self.act(x)
         x = self.pwconv2(x)

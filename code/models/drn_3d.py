@@ -1,9 +1,5 @@
 import torch.nn as nn
-import math
 import torch.utils.model_zoo as model_zoo
-import torch.nn.functional as F
-import torch
-from models.pl_base_model import ModelBase
 
 BatchNorm = nn.BatchNorm3d
 
@@ -88,6 +84,7 @@ class Bottleneck(nn.Module):
         out = self.relu(out)
 
         return out
+
 
 class DRN3D(nn.Module):
 

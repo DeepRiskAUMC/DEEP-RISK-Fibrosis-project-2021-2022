@@ -1,11 +1,5 @@
 import torch.nn as nn
-import torch
-from torchvision import models
-import torch.nn.functional as F
-import pytorch_lightning as pl
-
-from models.pl_base_model import ModelBase
-
+from models.pl_classification_model_2d import ModelBase
 
 
 class LightningSimpleNet(ModelBase):
@@ -49,10 +43,6 @@ class LightningSimpleNet(ModelBase):
                 nn.BatchNorm2d(128),
                 nn.MaxPool2d(kernel_size=2, stride=1)
             )
-
-
-
-        #self.classifier = nn.Conv2d(128, self.num_classes, 1, bias=True)
 
 
     def forward_features(self, x):

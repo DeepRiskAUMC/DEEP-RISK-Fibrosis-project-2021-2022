@@ -1,6 +1,7 @@
+
 import numpy as np
-import math
 from scipy.spatial import cKDTree
+
 
 def reg_hausdorff_distance(image0, image1):
     a_points = np.transpose(np.nonzero(image0))

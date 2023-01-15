@@ -1,19 +1,20 @@
-import torch.nn as nn
-import torch
-import torch.nn.functional as F
-import pytorch_lightning as pl
-import torchmetrics
-import matplotlib.pyplot as plt
-import io
-import numpy as np
 import itertools
-import torchvision
-import matplotlib.cm as cm
 import math
-from torchvision.transforms import transforms
+
 import cv2
+import matplotlib.cm as cm
+import matplotlib.pyplot as plt
+import numpy as np
+import pytorch_lightning as pl
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torchmetrics
+import torchvision
+from torchvision.transforms import transforms
 
 from .drn_3d import DRN3D
+
 
 class MyDice(torchmetrics.Metric):
     def __init__(self, threshold=0.5, dist_sync_on_step=False, smoothing=0, name='Dice', dim="3D"):
@@ -166,15 +167,11 @@ class ClassificationModel3D(pl.LightningModule):
         self.dice_t3_3D = _make_metric_dict(MyDice, threshold=0.3, smoothing=1, dim="3D", name="Dice_t.3_3D")
         self.dice_t5_3D = _make_metric_dict(MyDice, threshold=0.5, smoothing=1, dim="3D", name="Dice_t.5_3D")
 
-
         self.dices = [self.dice_t1_2D, self.dice_t3_2D, self.dice_t5_2D,
                      self.dice_t1_3D, self.dice_t3_3D, self.dice_t5_3D]
-        #self.dices = [self.dice_t1_3D]
-
 
         self.example_batch = {"Train" : None, "Val" : None , "Test": None}
         self.output2pred = nn.Sigmoid() if num_classes == 1 else nn.Softmax(dim=-1)
-
 
 
     def forward_features(self, x):
@@ -196,6 +193,7 @@ class ClassificationModel3D(pl.LightningModule):
             x = self.final_pool(x, myo_mask)
         x = torch.flatten(x, start_dim=1)
         return x
+
 
     def myo_seg_to_mask(self, x, dilation=0, size="cam"):
         assert size in ["cam", "image"]
@@ -305,12 +303,14 @@ class ClassificationModel3D(pl.LightningModule):
 
 
     def cross_entropy_loss(self, outputs, labels):
-        raise NotImplementedError # "NaN labels are not handled yet."
+        raise NotImplementedError # "NaN labels are not handled yet"
+        # below commented code does not work, since something funky is going on with
+        # nanmean and the flow of gradients.
+
         # ignore padded slices with label NaN
         #outputs = outputs.view(-1)[~labels.isnan().view(-1)]
         #labels = labels[~labels.isnan()].view(-1)
         #return F.cross_entropy(outputs, labels, label_smoothing=self.label_smoothing, reduction='none').nanmean()
-
 
 
     def bce_with_logits_loss(self, outputs, labels):
@@ -326,6 +326,7 @@ class ClassificationModel3D(pl.LightningModule):
         loss = F.binary_cross_entropy_with_logits(outputs, labels, pos_weight=torch.ones_like(labels)*self.pos_weight)
         return loss
 
+
     def _step(self, batch, split, logging=True):
         assert split in ["Train", "Val", "Test"]
 
@@ -334,7 +335,6 @@ class ClassificationModel3D(pl.LightningModule):
         myo_seg = batch['myo_seg']
         fibrosis_seg_label = batch['fibrosis_seg_label']
         outputs = self.forward(image, myo_seg)
-
 
         if self.classification_level == "3D":
             # reduce slice-level supervision to mri-level supervision
@@ -392,7 +392,6 @@ class ClassificationModel3D(pl.LightningModule):
         return batch_dict
 
 
-
     def log_confusion_matrix(self, split):
         class_names = ["Normal", "Fibrotic"]
 
@@ -422,7 +421,6 @@ class ClassificationModel3D(pl.LightningModule):
         self.logger.experiment.add_figure(f"Confusion/{split}", figure, self.current_epoch)
 
 
-
     def log_pr_curve(self, split):
         precision, recall, thresholds = self.pr_curve[split].compute()
         self.pr_curve[split].reset()
@@ -446,7 +444,6 @@ class ClassificationModel3D(pl.LightningModule):
         self.logger.experiment.add_figure(f"PR-curve/{split}", figure, self.current_epoch)
 
 
-
     def log_roc(self, split):
         fpr, tpr, thresholds = self.roc[split].compute()
         self.roc[split].reset()
@@ -468,8 +465,6 @@ class ClassificationModel3D(pl.LightningModule):
         plt.legend()
 
         self.logger.experiment.add_figure(f"ROC/{split}", figure, self.current_epoch)
-
-
 
 
     def log_cams(self, example_batch, split_name, upsampling="trilinear", select_values="all"):
@@ -525,8 +520,6 @@ class ClassificationModel3D(pl.LightningModule):
         return
 
 
-
-
     def _epoch_end(self, outputs, split):
         assert split in ["Train", "Val", "Test"]
         epoch_loss = torch.stack([x['loss'] for x in outputs]).mean()
@@ -557,24 +550,14 @@ class ClassificationModel3D(pl.LightningModule):
                 self.logger.experiment.add_scalar(f"{metric[split].name}/{split}", epoch_m, self.current_epoch)
 
 
-
     def training_epoch_end(self, outputs):
         self._epoch_end(outputs, "Train")
-
-
 
     def validation_epoch_end(self, outputs):
         self._epoch_end(outputs, "Val")
 
     def test_epoch_end(self, outputs):
         self._epoch_end(outputs, "Test")
-
-
-
-
-
-
-
 
 
 irange = range
@@ -687,8 +670,6 @@ def make_grid_with_labels(tensor, labels, predictions, nrow=8, limit=20, padding
     return grid
 
 
-
-
 class MaskedAdaptiveAvgPool3d(nn.Module):
     """Assumes input shape (B, C, D, H, W),
        output shape (B, C, output_size, output_size)
@@ -707,7 +688,6 @@ class MaskedAdaptiveAvgPool3d(nn.Module):
         return x
 
 
-
 class MaskedAdaptiveMaxPool3d(nn.Module):
     """Assumes input shape (B, C, D, H, W),
        output shape (B, C, output_size, output_size)
@@ -723,12 +703,6 @@ class MaskedAdaptiveMaxPool3d(nn.Module):
         # take normal max pooling
         x = F.adaptive_max_pool3d(x, self.output_size)
         return x
-
-
-
-
-
-
 
 
 

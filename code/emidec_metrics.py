@@ -8,19 +8,13 @@ Created on Thu Apr  9 07:01:01 2020
 
 #%% evluates metrics
 import numpy
-from scipy.ndimage import _ni_support
-from scipy.ndimage.morphology import distance_transform_edt, binary_erosion,\
-    generate_binary_structure
-from scipy.ndimage.measurements import label, find_objects
-from scipy.stats import pearsonr
-import os
-import os
-import shutil
-from time import time
-
 import numpy as np
-import SimpleITK as sitk
-import scipy.ndimage as ndimage
+from scipy.ndimage import _ni_support
+from scipy.ndimage.measurements import find_objects, label
+from scipy.ndimage.morphology import (binary_erosion, distance_transform_edt,
+                                      generate_binary_structure)
+from scipy.stats import pearsonr
+
 
 # code
 def dc(result, reference):

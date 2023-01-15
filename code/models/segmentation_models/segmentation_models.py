@@ -1,8 +1,9 @@
 # from msilib.schema import Feature
-import torch
 import torch.nn as nn
-from .unet_components import *
+
 from .canet_components import *
+from .unet_components import *
+
 
 class Simple_2d_Unet(nn.Module):
     def __init__(self, n_channels, n_classes, bilinear=True, adapted=False):
@@ -104,7 +105,6 @@ class Floor_2d_Unet_without_final_conv(nn.Module):
 class Floor_2d_Unet(nn.Module):
     def __init__(self, n_channels, n_classes, bilinear=True, sigmoid_finish=True, feature_multiplication=4):
         super(Floor_2d_Unet, self).__init__()
-        # self.segmentation_net = Floor_2d_Unet_without_final_conv(n_channels, n_classes, bilinear=bilinear, feature_multiplication=feature_multiplication)
         self.bilinear = bilinear
         print(f'bilinear: {bilinear}')
         self.sigmoid_finish = sigmoid_finish
@@ -139,7 +139,6 @@ class Floor_2d_Unet(nn.Module):
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
-        # x = self.segmentation_net(x)
         x1 = self.double_conv_down1(x)
         x2 = self.maxpool(x1)
         x2 = self.double_conv_down2(x2)
