@@ -204,7 +204,7 @@ python train_cross_validation.py --model GNN --use_MRI_features False --node_att
  
  4. Test the models using the following command:
  - *GNN models:*
- -  ```shell
+ ```shell
 python test_cross_validation.py --folds 0 1 2 3 4 --batch_size 8 --model_folder [folder_with_trained_model_per_fold] --num_myo 500 --num_fib 100 --probs_prefix [hdf5_output_folder]/segmentation_probs/version_xx_AUMC3D --myo_feat_folder_prefix [hdf5_output_folder]/segmentation_tensors_hdf5/myocardium_version_xx_AUMC3D --fib_feat_folder_prefix [hdf5_output_folder]/segmentation_tensors_hdf5/fibrosis_version_xx_AUMC3D --model_version 0 --which_model AUC --output_path [output_folder]
  ```
  - *all other models:*
